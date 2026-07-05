@@ -18,7 +18,6 @@ from .loader import load_invoices, load_notes, load_payments
 from .models import (
     Invoice,
     InvoiceResult,
-    Note,
     NoteFlag,
     NoteFlagType,
     OrphanPaymentResult,
