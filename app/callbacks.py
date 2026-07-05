@@ -9,8 +9,8 @@ make every card clickable only once.
 import dash_mantine_components as dmc
 from dash import ALL, Input, Output, State, ctx, no_update
 
-from .data import find_record, get_data
-from .layout import card_style, detail_panel, queue_card
+from .data import find_payment, find_record, get_data, vendor_invoices
+from .layout import card_style, detail_panel, payment_panel, queue_card, vendor_panel
 
 
 def register_callbacks(app) -> None:
@@ -65,3 +65,49 @@ def register_callbacks(app) -> None:
         if record is None:
             return dmc.Text("Select a record from the queue.", c="dimmed")
         return detail_panel(record)
+
+    @app.callback(
+        Output("graph-detail", "children"),
+        Input("network", "tapNodeData"),
+        prevent_initial_call=True,
+    )
+    def render_graph_detail(node):
+        # Every node kind gets its own view: invoices show the decision,
+        # payments show their fields + where they landed, vendors show
+        # their invoice portfolio.
+        if not node:
+            return no_update
+        if node.get("kind") == "invoice":
+            return detail_panel(find_record(node["record_id"]))
+        if node.get("kind") == "payment":
+            payment, owner = find_payment(node["id"])
+            if payment is None:
+                return no_update
+            return payment_panel(payment, owner)
+        if node.get("kind") == "vendor":
+            return vendor_panel(node["vendor"], vendor_invoices(node["vendor"]))
+        return no_update
+
+    # The graph mounts inside a hidden tab: the canvas starts at size 0 and
+    # the initial fit leaves a broken camera (zoom=1e50, pan=null). When the
+    # tab becomes visible, repair it client-side in one ordered sequence:
+    # resize the canvas, re-run the layout, and re-fit the viewport.
+    app.clientside_callback(
+        """
+        function(tab) {
+            if (tab !== "graph") { return window.dash_clientside.no_update; }
+            setTimeout(function () {
+                const el = document.getElementById("network");
+                const cy = el && el._cyreg && el._cyreg.cy;
+                if (!cy) { return; }
+                cy.resize();
+                cy.layout({name: "cose", animate: false, padding: 24}).run();
+                cy.fit(undefined, 30);
+            }, 120);
+            return Date.now();
+        }
+        """,
+        Output("graph-visible", "data"),
+        Input("main-tabs", "value"),
+        prevent_initial_call=True,
+    )

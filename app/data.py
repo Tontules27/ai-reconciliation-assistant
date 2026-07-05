@@ -82,3 +82,19 @@ def get_data(data_dir: str = "data") -> tuple[dict, list[dict]]:
 def find_record(record_id: str) -> dict | None:
     _, records = get_data()
     return next((r for r in records if r["record_id"] == record_id), None)
+
+
+def find_payment(payment_id: str) -> tuple[dict, dict] | tuple[None, None]:
+    """(payment row, owning queue record) — the record is the orphan itself
+    when the payment matched no invoice."""
+    _, records = get_data()
+    for r in records:
+        for p in r["payments"]:
+            if p["payment_id"] == payment_id:
+                return p, r
+    return None, None
+
+
+def vendor_invoices(vendor: str) -> list[dict]:
+    _, records = get_data()
+    return [r for r in records if r["kind"] == "invoice" and r["party"] == vendor]
