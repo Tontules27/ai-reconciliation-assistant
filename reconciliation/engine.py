@@ -14,6 +14,7 @@ import networkx as nx
 
 from .candidates import generate_candidates
 from .config import EngineConfig
+from .explain import compose_explanation
 from .loader import load_invoices, load_notes, load_payments
 from .models import (
     Invoice,
@@ -258,9 +259,7 @@ def _decide_invoice(
 
     confidence = round(min(1.0, max(0.0, sum(s.points for s in signals))), 2)
 
-    # Deterministic explanation (Phase 3 swaps in the template/LLM generator).
-    evidence = "; ".join(s.detail.rstrip(".") for s in signals)
-    explanation = f"{status.value}: {lead}. Evidence: {evidence}."
+    explanation = compose_explanation(status, lead, signals)
 
     return InvoiceResult(
         invoice_id=invoice.invoice_id,

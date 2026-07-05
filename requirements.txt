@@ -5,7 +5,9 @@ networkx>=3.3
 python-dotenv>=1.0
 
 # Optional LLM explanations (Phase 3) -- everything runs without an API key
+# Provider cascade: Anthropic first, Gemini as alternative.
 anthropic>=0.40
+google-genai>=1.0
 
 # Portal (Phase 4-6)
 dash>=2.17,<3
