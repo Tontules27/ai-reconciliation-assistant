@@ -1,0 +1,11 @@
+payment_id,payment_date,payer_name,currency,amount,reference
+PAY-9001,2026-05-15,ACME Logistcs,USD,1250.00,Payment for invoice 1001
+PAY-9002,2026-05-18,Grupo Norte,USD,980.50,INV1002
+PAY-9003,2026-05-20,Blue Ocean Supplies,USD,3000.00,Partial payment PO-8893
+PAY-9004,2026-05-22,Unknown Vendor,USD,700.00,PO-8894
+PAY-9005,2026-05-25,Delta Technology Services,USD,1490.00,Invoice 1005 discount applied
+PAY-9006,2026-05-26,Northwind Food,MXN,2200.00,PO-8896
+PAY-9007,2026-05-27,Prime Retail Ops,USD,750.00,Payment for INV-1007
+PAY-9008,2026-05-28,Prime Retail Operations,USD,750.00,Second payment for INV-1007
+PAY-9009,2026-05-29,Nova Packaging,EUR,1200.00,INV-1008
+PAY-9010,2026-05-30,Random Supplier,USD,600.00,No invoice reference

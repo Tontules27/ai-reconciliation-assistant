@@ -1,0 +1,9 @@
+invoice_id,vendor,invoice_date,due_date,currency,amount,po_number,status
+INV-1001,ACME Logistics,2026-05-01,2026-05-30,USD,1250.00,PO-8891,open
+INV-1002,Grupo Norte SA,2026-05-03,2026-06-02,USD,980.50,PO-8892,open
+INV-1003,Blue Ocean Supplies,2026-05-04,2026-06-04,USD,4300.00,PO-8893,open
+INV-1004,ACME Logistics LLC,2026-05-08,2026-06-08,USD,700.00,PO-8894,open
+INV-1005,Delta Tech Services,2026-05-10,2026-06-10,USD,1500.00,PO-8895,open
+INV-1006,Northwind Foods,2026-05-11,2026-06-11,MXN,2200.00,PO-8896,open
+INV-1007,Prime Retail Ops,2026-05-12,2026-06-12,USD,750.00,PO-8897,open
+INV-1008,Nova Packaging,2026-05-14,2026-06-14,USD,1200.00,PO-8898,open

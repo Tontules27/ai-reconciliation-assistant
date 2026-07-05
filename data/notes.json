@@ -1,0 +1,7 @@
+[
+  { "source": "email", "text": "ACME Logistics confirmed payment for invoice INV-1001. There was a typo in the payer name from the bank export." },
+  { "source": "email", "text": "Blue Ocean Supplies sent a partial payment for PO-8893. Remaining balance will be paid next week." },
+  { "source": "slack", "text": "Delta Tech Services applied a 10 USD early payment discount for invoice INV-1005." },
+  { "source": "ops-note", "text": "Prime Retail Ops may have accidentally sent the same payment twice for invoice INV-1007. Please verify before closing." },
+  { "source": "email", "text": "Nova Packaging normally invoices in USD. Any EUR payment should be manually reviewed before reconciliation." }
+]
