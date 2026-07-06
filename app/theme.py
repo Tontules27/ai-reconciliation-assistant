@@ -27,6 +27,15 @@ BADGE_COLORS = {
 # Triage order: the operator sees the riskiest work first.
 SEVERITY_ORDER = ["Suspicious", "Needs Review", "Partial Match", "Unmatched", "Matched"]
 
+# Manual-review decision chips (distinct job from matching statuses).
+DECISION_COLORS = {
+    "approved": "green",
+    "rejected": "red",
+    "marked_duplicate": "orange",
+    "resolved": "blue",
+    "cleared": "gray",
+}
+
 # Chart chrome (light surface) — recessive grid, muted axis ink.
 CHART = {
     "surface": "#fcfcfb",

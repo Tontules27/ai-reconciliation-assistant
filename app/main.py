@@ -13,7 +13,11 @@ from .layout import build_layout
 
 
 def create_app() -> dash.Dash:
-    app = dash.Dash(__name__, title="Reconciliation Portal")
+    # suppress_callback_exceptions: the review controls (e.g. "review-note")
+    # are created by the detail-panel callback, not the initial layout, so
+    # Dash's load-time validation would flag them as missing otherwise.
+    app = dash.Dash(__name__, title="Reconciliation Portal",
+                    suppress_callback_exceptions=True)
     app.layout = build_layout()
     register_callbacks(app)
     return app

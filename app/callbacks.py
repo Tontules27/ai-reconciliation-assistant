@@ -1,16 +1,21 @@
-"""Portal callbacks: filter/search the queue, select a record, show detail.
+"""Portal callbacks: filter/search the queue, select a record, show detail,
+apply manual review decisions.
 
-Structure matters here: the queue children are rebuilt ONLY when filters
-change. Selection updates card styles via a pattern-matching output instead —
-re-creating the clicked components would reset their n_clicks counters and
-make every card clickable only once.
+Structure matters here: the queue children are rebuilt ONLY when filters or
+decisions change. Selection updates card styles via a pattern-matching output
+instead — re-creating the clicked components would reset their n_clicks
+counters and make every card clickable only once.
 """
+
+import time
 
 import dash_mantine_components as dmc
 from dash import ALL, Input, Output, State, ctx, no_update
 
+from . import store
 from .data import find_payment, find_record, get_data, vendor_invoices
-from .layout import card_style, detail_panel, payment_panel, queue_card, vendor_panel
+from .layout import (audit_table, card_style, detail_panel, payment_panel,
+                     queue_card, vendor_panel)
 
 
 def register_callbacks(app) -> None:
@@ -18,10 +23,12 @@ def register_callbacks(app) -> None:
         Output("queue", "children"),
         Input("search", "value"),
         Input("status-filter", "value"),
+        Input("decisions-version", "data"),
         State("selected", "data"),
     )
-    def render_queue(search, statuses, selected):
+    def render_queue(search, statuses, _version, selected):
         _, records = get_data()
+        decisions = store.get_decisions()
         needle = (search or "").strip().lower()
         rows = [
             r for r in records
@@ -33,7 +40,8 @@ def register_callbacks(app) -> None:
         ]
         if not rows:
             return dmc.Text("No records match the current filters.", c="dimmed", size="sm")
-        return [queue_card(r, selected=(r["record_id"] == selected)) for r in rows]
+        return [queue_card(r, selected=(r["record_id"] == selected),
+                           decision=decisions.get(r["record_id"])) for r in rows]
 
     @app.callback(
         Output("selected", "data"),
@@ -59,12 +67,44 @@ def register_callbacks(app) -> None:
             styles.append(card_style(record["status"], card_id["index"] == selected))
         return styles
 
-    @app.callback(Output("detail", "children"), Input("selected", "data"))
-    def render_detail(selected):
+    @app.callback(
+        Output("detail", "children"),
+        Input("selected", "data"),
+        Input("decisions-version", "data"),
+    )
+    def render_detail(selected, _version):
         record = find_record(selected)
         if record is None:
             return dmc.Text("Select a record from the queue.", c="dimmed")
-        return detail_panel(record)
+        decision = store.get_decisions().get(selected)
+        return detail_panel(record, decision=decision, with_review=True)
+
+    @app.callback(
+        Output("decisions-version", "data"),
+        Input({"type": "review-btn", "action": ALL}, "n_clicks"),
+        State("selected", "data"),
+        State("reviewer", "value"),
+        State("review-note", "value"),
+        prevent_initial_call=True,
+    )
+    def apply_decision(clicks, selected, reviewer, note):
+        # Detail re-renders also fire this input with all-None clicks; ignore.
+        if not clicks or not any(clicks) or not selected:
+            return no_update
+        action = ctx.triggered_id["action"]
+        reviewer = (reviewer or "").strip() or "operator"
+        if action == "clear":
+            store.clear_decision(selected, reviewer)
+        else:
+            store.record_decision(selected, action, reviewer, (note or "").strip())
+        return time.time()  # bump -> queue chips, detail and audit re-render
+
+    @app.callback(
+        Output("audit-log", "children"),
+        Input("decisions-version", "data"),
+    )
+    def render_audit(_version):
+        return audit_table(store.get_audit_log())
 
     @app.callback(
         Output("graph-detail", "children"),

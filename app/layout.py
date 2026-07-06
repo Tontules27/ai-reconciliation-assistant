@@ -12,7 +12,7 @@ from dash import dcc, html
 from .data import get_data
 from .figures import status_bar_chart
 from .graph import GRAPH_LAYOUT, STYLESHEET, build_elements
-from .theme import BADGE_COLORS, STATUS_COLORS
+from .theme import BADGE_COLORS, DECISION_COLORS, STATUS_COLORS
 
 
 def status_badge(status: str, **kwargs) -> dmc.Badge:
@@ -44,7 +44,7 @@ def card_style(status: str, selected: bool) -> dict:
     }
 
 
-def queue_card(record: dict, selected: bool) -> html.Div:
+def queue_card(record: dict, selected: bool, decision: dict | None = None) -> html.Div:
     # dmc.Card has NO n_clicks prop, so the pattern-matching id lives on a
     # plain html.Div wrapper — the one Dash component guaranteed clickable.
     card = dmc.Card(
@@ -73,6 +73,9 @@ def queue_card(record: dict, selected: bool) -> html.Div:
                     dmc.Text(f"confidence {record['confidence']:.2f}", size="xs", c="dimmed"),
                     *(dmc.Badge(reason, size="xs", variant="outline", color="gray")
                       for reason in record["review_reasons"]),
+                    dmc.Badge(f"✓ {decision['decision'].replace('_', ' ')}", size="xs",
+                              variant="dot", color=DECISION_COLORS[decision["decision"]])
+                    if decision else None,
                 ],
                 gap="xs", mt=6,
             ),
@@ -95,7 +98,46 @@ def _detail_table(head: list[str], body: list[list]) -> dmc.Table:
     )
 
 
-def detail_panel(record: dict) -> dmc.Stack:
+def review_section(record_id: str, decision: dict | None) -> list:
+    """Manual review controls: current decision (who/when) + action buttons.
+
+    Only rendered in the triage detail panel so the pattern-matching button
+    ids exist exactly once in the page.
+    """
+    del record_id  # the apply callback reads the selection from the store
+    children = [dmc.Divider(label="Manual review", labelPosition="left", mt="sm")]
+    if decision:
+        children.append(dmc.Alert(
+            f"{decision['decision'].replace('_', ' ')} by {decision['reviewer']} "
+            f"at {decision['decided_at']}"
+            + (f" — “{decision['note']}”" if decision["note"] else ""),
+            title="Current decision",
+            color=DECISION_COLORS[decision["decision"]], variant="light", radius="md",
+        ))
+    children += [
+        dmc.TextInput(id="review-note", placeholder="Optional note for the audit trail…"),
+        dmc.Group(
+            [
+                dmc.Button("Approve", color="green", size="xs",
+                           id={"type": "review-btn", "action": "approved"}),
+                dmc.Button("Reject", color="red", size="xs",
+                           id={"type": "review-btn", "action": "rejected"}),
+                dmc.Button("Mark duplicate", color="orange", size="xs",
+                           id={"type": "review-btn", "action": "marked_duplicate"}),
+                dmc.Button("Resolved", color="blue", size="xs",
+                           id={"type": "review-btn", "action": "resolved"}),
+                dmc.Button("Clear", color="gray", size="xs", variant="subtle",
+                           id={"type": "review-btn", "action": "clear"},
+                           display="block" if decision else "none"),
+            ],
+            gap="xs",
+        ),
+    ]
+    return children
+
+
+def detail_panel(record: dict, decision: dict | None = None,
+                 with_review: bool = False) -> dmc.Stack:
     """The WHY view: decision, evidence breakdown, money, notes, next step."""
     signals_rows = [
         [s["detail"], f"{s['points']:+.2f}"] for s in record["signals"]
@@ -146,6 +188,8 @@ def detail_panel(record: dict) -> dmc.Stack:
             *(dmc.Blockquote(note, color="gray", radius="md", mt="xs")
               for note in record["related_notes"]),
         ]
+    if with_review:
+        children += review_section(record["record_id"], decision)
 
     return dmc.Stack([c for c in children if c is not None], gap="sm")
 
@@ -309,6 +353,25 @@ def vendor_panel(vendor: str, invoices: list[dict]) -> dmc.Stack:
     )
 
 
+def audit_table(entries: list[dict]) -> dmc.Stack:
+    """Who / what / when — the append-only history, newest first."""
+    if not entries:
+        return dmc.Stack([
+            dmc.Text("No review activity yet.", c="dimmed", size="sm"),
+            dmc.Text("Decisions made in the triage queue appear here with "
+                     "reviewer, action and timestamp.", c="dimmed", size="xs"),
+        ], gap=4)
+    return dmc.Stack([
+        dmc.Text(f"{len(entries)} entries (append-only; clearing a decision is "
+                 "itself an audited action)", size="xs", c="dimmed"),
+        _detail_table(
+            ["When (UTC)", "Record", "Action", "Reviewer", "Note"],
+            [[e["at"], e["record_id"], e["action"].replace("_", " "),
+              e["reviewer"], e["note"]] for e in entries],
+        ),
+    ], gap="sm")
+
+
 def build_layout() -> dmc.MantineProvider:
     summary, records = get_data()
     needs_attention = (summary["status_counts"]["Needs Review"]
@@ -322,12 +385,24 @@ def build_layout() -> dmc.MantineProvider:
                 dcc.Store(id="selected", data=records[0]["record_id"]),
                 # Timestamp of the graph tab becoming visible (drives re-layout).
                 dcc.Store(id="graph-visible"),
+                # Bumped after every manual decision; re-renders queue/detail/audit.
+                dcc.Store(id="decisions-version", data=0),
 
                 dmc.Group(
                     [
                         dmc.Title("Reconciliation Portal", order=2),
-                        dmc.Text("read-only · recomputed from source files on start",
-                                 size="xs", c="dimmed"),
+                        dmc.Group(
+                            [
+                                dmc.Text("reconciliation recomputed from source files on start",
+                                         size="xs", c="dimmed"),
+                                # Who: no auth in scope — the reviewer signs their
+                                # decisions by name (persisted in the browser).
+                                dmc.TextInput(id="reviewer", placeholder="Reviewer name",
+                                              w=180, size="xs",
+                                              persistence=True, persistence_type="local"),
+                            ],
+                            gap="md",
+                        ),
                     ],
                     justify="space-between", mt="md",
                 ),
@@ -356,9 +431,15 @@ def build_layout() -> dmc.MantineProvider:
                         dmc.TabsList([
                             dmc.TabsTab("Triage queue", value="queue"),
                             dmc.TabsTab("Network graph", value="graph"),
+                            dmc.TabsTab("Audit log", value="audit"),
                         ]),
                         dmc.TabsPanel(_queue_tab(statuses), value="queue", pt="md"),
                         dmc.TabsPanel(_graph_tab(), value="graph", pt="md"),
+                        dmc.TabsPanel(
+                            dmc.Card(id="audit-log", withBorder=True, radius="md",
+                                     padding="lg", mb="xl"),
+                            value="audit", pt="md",
+                        ),
                     ],
                     id="main-tabs", value="queue",
                     # Both panels stay mounted so the shared selection Store
