@@ -16,7 +16,11 @@ from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
-DB_PATH = Path("review.db")
+# Anchored to the project root so every launch directory shares ONE database.
+# A cwd-relative path would silently create a fresh empty DB per launch
+# directory (CREATE TABLE IF NOT EXISTS masks the split) and decisions would
+# appear lost.
+DB_PATH = Path(__file__).resolve().parent.parent / "review.db"
 
 DECISIONS = ("approved", "rejected", "marked_duplicate", "resolved")
 

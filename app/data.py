@@ -1,9 +1,10 @@
 """Portal data access: run the engine once per process, shape rows for the UI.
 
-The portal is read-only: reconciliation is recomputed from the files at
-process start (never persisted), and this module is the only place the UI
-touches the engine. Invoices and orphan payments are unified into "queue
-records" sorted by risk — that ordering IS the triage queue.
+Reconciliation state is derived, never persisted: it is recomputed from the
+source files at process start (manual review decisions live in store.py).
+This module is the only place the UI touches the engine. Invoices and orphan
+payments are unified into "queue records" sorted by risk — that ordering IS
+the triage queue.
 """
 
 from functools import lru_cache

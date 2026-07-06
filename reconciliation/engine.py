@@ -72,22 +72,31 @@ def _payment_neighbors(g: nx.Graph, invoice_id: str) -> list[str]:
 
 
 def duplicate_suspects(g: nx.Graph, payments_by_id: dict[str, Payment],
+                       invoices_by_id: dict[str, Invoice],
                        cfg: EngineConfig) -> set[str]:
-    """Invoices with 2+ incoming payments of the same amount.
+    """Invoices with 2+ incoming payments of the same amount that do NOT sum
+    to the invoice total.
 
     Two identical amounts against one invoice is the classic double-payment
-    signature; distinct amounts (installments) are handled as partials.
+    signature — unless together they settle the invoice exactly, in which
+    case they are legitimate equal installments (e.g. a 50/50 split), not
+    duplicates. Distinct amounts are always handled as partials.
     """
     suspects = set()
     for node, data in g.nodes(data=True):
         if data["kind"] != "invoice":
             continue
         amounts = [payments_by_id[p].amount for p in _payment_neighbors(g, node)]
-        if len(amounts) >= 2 and any(
+        if len(amounts) < 2:
+            continue
+        has_equal_pair = any(
             abs(a - b) <= cfg.amount_tolerance
             for i, a in enumerate(amounts)
             for b in amounts[i + 1:]
-        ):
+        )
+        settles_invoice = abs(sum(amounts) - invoices_by_id[node].amount) \
+            <= cfg.amount_tolerance
+        if has_equal_pair and not settles_invoice:
             suspects.add(node)
     return suspects
 
@@ -170,30 +179,43 @@ def _decide_invoice(
         add("currency", f"Currencies match ({invoice.currency}).", cfg.w_currency)
 
     # Amount evaluation over the SUM of linked payments (handles installments),
-    # with documented discounts applied before comparing. Tolerance, never ==.
+    # with documented discounts folded in before comparing. Tolerance, never ==.
+    # Currency comes first: amounts in different currencies are NEVER compared,
+    # so a numerically-equal cross-currency pair earns no equality signal.
     diff = invoice.amount - total_paid
-    if abs(diff) <= cfg.amount_tolerance:
+    effective_diff = diff - discount
+    if not currency_ok:
+        amount_state = "incomparable"
+        add("amount", "Amounts are not compared across different currencies.", 0.0)
+    elif abs(diff) <= cfg.amount_tolerance:
         amount_state = "exact"
         add("amount",
             f"Paid {total_paid} equals invoice amount {invoice.amount}.",
             cfg.w_amount_exact)
-    elif discount > 0 and abs(diff - discount) <= cfg.amount_tolerance:
+    elif discount > 0 and abs(effective_diff) <= cfg.amount_tolerance:
         amount_state = "note_adjusted"
         add("amount",
             f"Paid {total_paid} + documented discount {discount} equals "
             f"invoice amount {invoice.amount}.",
             cfg.w_amount_note_adjusted)
-    elif diff > 0:
+    elif effective_diff > cfg.amount_tolerance:
         amount_state = "underpaid"
         noted = NoteFlagType.PARTIAL_PAYMENT in flag_types
         add("amount",
             f"Paid {total_paid} of {invoice.amount}"
+            + (f" (documented discount {discount} applied)" if discount else "")
             + (" — a note confirms a partial payment." if noted
                else " with no note explaining the difference."),
             cfg.w_amount_partial_noted if noted else cfg.w_amount_partial)
     else:
+        # Raw overpayment, or a documented discount larger than the shortfall
+        # (paid + discount exceeds the invoice) — either way money came in
+        # above the effective amount due; never report a negative balance.
         amount_state = "overpaid"
-        add("amount", f"Paid {total_paid} exceeds invoice amount {invoice.amount}.", 0.0)
+        add("amount",
+            f"Paid {total_paid}"
+            + (f" plus documented discount {discount}" if discount else "")
+            + f" exceeds invoice amount {invoice.amount}.", 0.0)
 
     # --- Status rules, most severe first. Conservative bias: anomalies go to
     # a human (Suspicious / Needs Review) before any auto-match applies. ---
@@ -244,7 +266,8 @@ def _decide_invoice(
                 cfg.w_note_corroboration)
     elif amount_state == "underpaid":
         status = Status.PARTIAL_MATCH
-        remaining = (invoice.amount - total_paid - discount).quantize(_CENT)
+        # effective_diff > tolerance in this branch, so never negative.
+        remaining = effective_diff.quantize(_CENT)
         lead = f"partial payment received; {remaining} {invoice.currency} outstanding"
         action = _ACTIONS[Status.PARTIAL_MATCH]
         if NoteFlagType.PARTIAL_PAYMENT in flag_types:
@@ -324,7 +347,7 @@ def reconcile(data_dir: str | Path = "data",
     # Graph structure feeds classification (duplicates, orphans) and is
     # reused by the Phase 5 visualization.
     graph = build_graph(invoices, payments, links)
-    duplicates = duplicate_suspects(graph, payments_by_id, cfg)
+    duplicates = duplicate_suspects(graph, payments_by_id, invoices_by_id, cfg)
 
     results = [
         _decide_invoice(
@@ -337,6 +360,7 @@ def reconcile(data_dir: str | Path = "data",
         for inv in invoices
     ]
 
+    orphan_ids = orphan_payment_ids(graph)  # computed once, not per payment
     orphans = [
         OrphanPaymentResult(
             payment_id=pay.payment_id,
@@ -355,7 +379,7 @@ def reconcile(data_dir: str | Path = "data",
             ),
         )
         for pay in payments
-        if pay.payment_id in orphan_payment_ids(graph)
+        if pay.payment_id in orphan_ids
     ]
 
     status_counts = {s.value: 0 for s in Status}

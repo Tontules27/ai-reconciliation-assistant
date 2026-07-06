@@ -1,7 +1,10 @@
 """Review store: current-decision projection + append-only audit trail."""
 
+from pathlib import Path
+
 import pytest
 
+import app.store as store_module
 from app.store import clear_decision, get_audit_log, get_decisions, record_decision
 
 
@@ -46,3 +49,9 @@ def test_clearing_nothing_adds_no_audit_noise(db):
 def test_unknown_decision_rejected(db):
     with pytest.raises(ValueError):
         record_decision("INV-1001", "shredded", "ana", db_path=db)
+
+
+def test_default_db_path_is_anchored_to_project_root():
+    # A cwd-relative path would silently split decisions across launch dirs.
+    assert store_module.DB_PATH.is_absolute()
+    assert store_module.DB_PATH.parent == Path(store_module.__file__).resolve().parent.parent

@@ -381,8 +381,10 @@ def build_layout() -> dmc.MantineProvider:
     return dmc.MantineProvider(
         dmc.Container(
             [
-                # Selection state; defaults to the riskiest record.
-                dcc.Store(id="selected", data=records[0]["record_id"]),
+                # Selection state; defaults to the riskiest record (None on
+                # an empty dataset — the detail panel shows a placeholder).
+                dcc.Store(id="selected",
+                          data=records[0]["record_id"] if records else None),
                 # Timestamp of the graph tab becoming visible (drives re-layout).
                 dcc.Store(id="graph-visible"),
                 # Bumped after every manual decision; re-renders queue/detail/audit.

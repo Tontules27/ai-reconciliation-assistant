@@ -39,8 +39,9 @@ def status_bar_chart(status_counts: dict[str, int]) -> go.Figure:
         xaxis=dict(
             showgrid=True, gridcolor=CHART["grid"], zeroline=False,
             tickfont=dict(color=CHART["muted"], size=12),
-            # headroom so outside value labels never clip
-            range=[0, max(values) * 1.25 if values else 1],
+            # headroom so outside value labels never clip; floor of 1 keeps
+            # the axis sane when every count is zero (empty dataset)
+            range=[0, max([*values, 1]) * 1.25],
         ),
         yaxis=dict(
             autorange="reversed",  # most severe on top

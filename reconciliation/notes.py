@@ -20,10 +20,16 @@ from .normalize import (
     po_number_token,
 )
 
-# An amount is only trusted as a discount figure when it is anchored to a
-# currency code ("10 USD"), so invoice numbers in the same sentence are
-# never mistaken for money.
-_CURRENCY_AMOUNT_RE = re.compile(r"\b(\d+(?:\.\d{1,2})?)\s*(usd|eur|mxn)\b", re.IGNORECASE)
+# An amount is only trusted as a discount figure when it is (a) anchored to a
+# currency code ("10 USD") so invoice numbers are never mistaken for money,
+# AND (b) adjacent to the word "discount" — a note that also states the paid
+# amount must not have that amount read as the discount. Two shapes:
+# "10 USD [up to 3 words] discount" and "discount of 10 USD".
+_DISCOUNT_AMOUNT_RE = re.compile(
+    r"\b(\d+(?:\.\d{1,2})?)\s*(?:usd|eur|mxn)\b(?:\s+\w+){0,3}\s+discount"
+    r"|discount\s+of\s+(\d+(?:\.\d{1,2})?)\s*(?:usd|eur|mxn)\b",
+    re.IGNORECASE,
+)
 _CURRENCY_CODE_RE = re.compile(r"\b(usd|eur|mxn)\b", re.IGNORECASE)
 
 
@@ -43,24 +49,25 @@ def _detect_flag_types(text: str) -> list[NoteFlagType]:
     return types
 
 
-def _target_invoices(note: Note, invoices: list[Invoice], cfg: EngineConfig) -> list[str]:
-    """Which invoices does this note talk about?
+def _target_invoices(note: Note, invoices: list[Invoice],
+                     cfg: EngineConfig) -> tuple[list[str], bool]:
+    """(invoice ids this note talks about, whether they were cited explicitly).
 
     Explicit ids win: if the note cites an invoice or PO number, attach only
-    there. Vendor-name fuzzy matching is a fallback for id-less notes only —
-    otherwise a note naming "ACME Logistics" would also leak onto
-    "ACME Logistics LLC" and could corrupt an unrelated decision.
+    there (each token resolved in its own namespace). Vendor-name fuzzy
+    matching is a fallback for id-less notes only — otherwise a note naming
+    "ACME Logistics" would also leak onto "ACME Logistics LLC" and could
+    corrupt an unrelated decision.
     """
     by_number = {invoice_number(inv.invoice_id): inv.invoice_id for inv in invoices}
     by_po = {po_number_token(inv.po_number): inv.invoice_id for inv in invoices}
 
-    cited = extract_invoice_numbers(note.text) | extract_po_numbers(note.text)
     targets = sorted(
-        {by_number[n] for n in cited if n in by_number}
-        | {by_po[n] for n in cited if n in by_po}
+        {by_number[n] for n in extract_invoice_numbers(note.text) if n in by_number}
+        | {by_po[n] for n in extract_po_numbers(note.text) if n in by_po}
     )
     if targets:
-        return targets
+        return targets, True
 
     norm_text = normalize_name(note.text)
     return sorted(
@@ -68,7 +75,7 @@ def _target_invoices(note: Note, invoices: list[Invoice], cfg: EngineConfig) -> 
         for inv in invoices
         if fuzz.partial_ratio(normalize_name(inv.vendor), norm_text)
         >= cfg.note_vendor_threshold
-    )
+    ), False
 
 
 def extract_flags(
@@ -76,15 +83,19 @@ def extract_flags(
 ) -> list[NoteFlag]:
     flags = []
     for note in notes:
-        targets = _target_invoices(note, invoices, cfg)
+        targets, explicit = _target_invoices(note, invoices, cfg)
         if not targets:
             continue
         for flag_type in _detect_flag_types(note.text):
             discount = None
-            if flag_type is NoteFlagType.DISCOUNT:
-                m = _CURRENCY_AMOUNT_RE.search(note.text)
+            # A discount amount is only trusted when the note cites the exact
+            # invoice/PO: a vendor-level note attaches to EVERY invoice of
+            # that vendor, and applying its amount everywhere could silently
+            # write off money that is genuinely outstanding.
+            if flag_type is NoteFlagType.DISCOUNT and explicit:
+                m = _DISCOUNT_AMOUNT_RE.search(note.text)
                 # Decimal from the matched string — same no-float rule as CSV.
-                discount = Decimal(m.group(1)) if m else None
+                discount = Decimal(m.group(1) or m.group(2)) if m else None
             flags.append(
                 NoteFlag(
                     type=flag_type,

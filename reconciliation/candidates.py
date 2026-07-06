@@ -36,15 +36,20 @@ def generate_candidates(
         # Filter 1 — reference citation. Currency is deliberately NOT checked
         # here: a cited pair with a currency mismatch must survive so the
         # decision rules can flag it, not silently drop it.
-        cited = extract_invoice_numbers(pay.reference) | extract_po_numbers(pay.reference)
-        for token in cited:
-            inv = by_number.get(token) or by_po.get(token)
-            if inv:
-                pairs[(pay.payment_id, inv.invoice_id)] = CandidatePair(
-                    payment_id=pay.payment_id,
-                    invoice_id=inv.invoice_id,
-                    via_reference=True,
-                )
+        # Tokens keep their namespace: an invoice citation resolves only
+        # against invoice numbers and a PO citation only against PO numbers —
+        # a PO whose digits collide with another invoice's id must not bind
+        # to that invoice.
+        ref_hits = [by_number[t] for t in extract_invoice_numbers(pay.reference)
+                    if t in by_number]
+        ref_hits += [by_po[t] for t in extract_po_numbers(pay.reference)
+                     if t in by_po]
+        for inv in ref_hits:
+            pairs[(pay.payment_id, inv.invoice_id)] = CandidatePair(
+                payment_id=pay.payment_id,
+                invoice_id=inv.invoice_id,
+                via_reference=True,
+            )
 
         # Filter 2 — no citation: same currency + plausible amount band +
         # minimally similar name. All three required, so a stray payment
